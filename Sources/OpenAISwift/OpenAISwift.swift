@@ -171,6 +171,61 @@ extension OpenAISwift {
             }
         }
     }
+
+    public func sendChatFunction<T:Codable>(with messages: [ChatMessage],
+                         functions: [ChatFunctions<T>]? = nil,
+                         model: OpenAIModelType = .chat(.chatgpt),
+                         user: String? = nil,
+                         temperature: Double? = 1,
+                         topProbabilityMass: Double? = 0,
+                         choices: Int? = 1,
+                         stop: [String]? = nil,
+                         maxTokens: Int? = nil,
+                         presencePenalty: Double? = 0,
+                         frequencyPenalty: Double? = 0,
+                         logitBias: [Int: Double]? = nil,
+                         functionCall: String = "auto",
+                         completionHandler: @escaping (Result<OpenAI<MessageResult>, OpenAIError>) -> Void) {
+        let endpoint = Endpoint.chat
+        let body = ChatConversationFunction(user: user,
+                                    messages: messages,
+                                    functions: functions,
+                                    model: model.modelName,
+                                    temperature: temperature,
+                                    topProbabilityMass: topProbabilityMass,
+                                    choices: choices,
+                                    stop: stop,
+                                    maxTokens: maxTokens,
+                                    presencePenalty: presencePenalty,
+                                    frequencyPenalty: frequencyPenalty,
+                                    logitBias: logitBias,
+                                    functionCall: functionCall
+        )
+
+        let request = prepareRequest(endpoint, body: body)
+        
+        makeRequest(request: request) { result in
+            switch result {
+            case .success(let success):
+                if let chatErr = try? JSONDecoder().decode(ChatError.self, from: success) as ChatError {
+                    debugPrint(chatErr)
+                    completionHandler(.failure(.chatError(error: chatErr.error)))
+                    return
+                }
+                
+                do {
+                    let res = try JSONDecoder().decode(OpenAI<MessageResult>.self, from: success)
+                    completionHandler(.success(res))
+                } catch {
+                    completionHandler(.failure(.decodingError(error: error)))
+                }
+                
+            case .failure(let failure):
+                completionHandler(.failure(.genericError(error: failure)))
+            }
+        }
+    }
+
     
     /// Send a Embeddings request to the OpenAI API
     /// - Parameters:
@@ -342,6 +397,45 @@ extension OpenAISwift {
             }
         }
     }
+    
+    @available(swift 5.5)
+    @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, *)
+    public func sendChatFunctionCalling<T:Codable>(with messages: [ChatMessage],
+                         functions: [ChatFunctions<T>]? = nil,
+                                                   model: OpenAIModelType = .chat(.chatgpt0613),
+                         user: String? = nil,
+                         temperature: Double? = 1,
+                         topProbabilityMass: Double? = 0,
+                         choices: Int? = 1,
+                         stop: [String]? = nil,
+                         maxTokens: Int? = nil,
+                         presencePenalty: Double? = 0,
+                         frequencyPenalty: Double? = 0,
+                         logitBias: [Int: Double]? = nil,
+                         functionCall: String = "auto") async throws -> OpenAI<MessageResult> {
+        return try await withCheckedThrowingContinuation { continuation in
+            sendChatFunction(with: messages,
+                     functions: functions,
+                     model: model,
+                     user: user,
+                     temperature: temperature,
+                     topProbabilityMass: topProbabilityMass,
+                     choices: choices,
+                     stop: stop,
+                     maxTokens: maxTokens,
+                     presencePenalty: presencePenalty,
+                     frequencyPenalty: frequencyPenalty,
+                     logitBias: logitBias,
+                     functionCall: functionCall
+            ) { result in
+                switch result {
+                    case .success: continuation.resume(with: result)
+                    case .failure(let failure): continuation.resume(throwing: failure)
+                }
+            }
+        }
+    }
+
 
     /// Send a Embeddings request to the OpenAI API
     /// - Parameters:
